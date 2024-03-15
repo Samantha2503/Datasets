@@ -1,4 +1,7 @@
 Nombre,Costo,Tiempo_Est,Satisfaccion
+HotelRiuPlazaGuadalajara,4575,0,4.7
+HyattRegencyAndaresGuadalajara,5171,0,4.8
+FiestaAmericanaGuadalajara,3461,0,4.6
 MuseoRegionaldeGuadalajara,95,45,4.5
 MUSAMuseodelasArtesUniversidaddeGuadalajara,0,65,4.8
 MuseodelaCiudaddeGuadalajara,0,85,4.6
@@ -39,6 +42,3 @@ CentroMagno,0,190,4.3
 CentroSur,0,50,4.2
 CentroComercialPlazaLomas,0,40,4.4
 PlazaGaleriasGuadalajara,0,230,4.5
-HotelRiuPlazaGuadalajara,4575,0,4.7
-HyattRegencyAndaresGuadalajara,5171,0,4.8
-FiestaAmericanaGuadalajara,3461,0,4.6
