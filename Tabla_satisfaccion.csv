@@ -1,43 +1,44 @@
 Nombre,Costo,Tiempo_Est,Satisfaccion
-Museo Regional de Guadalajara,95,45,4.5
-MUSA Museo de las Artes Universidad de Guadalajara,0,65,4.8
-Museo de la Ciudad de Guadalajara,0,85,4.6
-Museo Palacio Ocampo,100,50,4.5
-Museo de Paleontología de Guadalajara,20,110,4.6
-Museo de Arte de Zapopan,0,120,4.5
-Casa Museo López Portillo,0,45,4.6
-Museo de las Artes Populares de Jalisco,0,75,4.4
-Museo del Ejército y Fuerza Aérea,0,55,4.8
-Museo De Sitio Del Palacio De Gobierno,40,35,4.7
-Zoológico Guadalajara,335,300,4.7
-El Tejaban,20,30,4.3
-Acuario del Zoológico Guadalajara,100,90,4.8
-"Antártida, el reino de los pingüinos",70,15,4.7
-Zoológico,125,245,4.4
-Parque Villa Fantasía,10,30,3.9
-Villa Australiana,0,12,4.3
-"Herpetario, la tierra de los reptiles y anfibios.",0,30,4.6
-Natura Pet,0,35,4.7
-Parque Revolución,0,35,4.3
-Parque Morelos,0,48,4.1
-Parque Alcalde,0,95,4.5
-Parque Agua Azul,0,15,4.4
-Parque Expiatorio,0,30,4.7
-Parque de La Liberación,0,60,4.4
-Parque San Jacinto,0,10,4.4
-Parque Jardines del Nilo,0,20,4.5
-Parque la Calma,0,120,4.6
-Parque González Gallo,0,100,4.5
-Andares Centro Comercial,0,180,4.7
-Fórum Tlaquepaque,0,160,4.6
-Centro Comercial Plaza Patria,0,150,4.5
-Plaza Real Center,0,60,4.5
-La Gran Plaza Fashion Mall,0,200,4.6
-Punto Sur,0,130,4.7
-Centro Magno,0,190,4.3
-Centro Sur,0,50,4.2
-Centro Comercial Plaza Lomas,0,40,4.4
-Plaza Galerías Guadalajara,0,230,4.5
-Hotel Riu Plaza Guadalajara,4575,0,4.7
-Hyatt Regency Andares Guadalajara,5171,0,4.8
-Fiesta Americana Guadalajara,3461,0,4.6
+MuseoRegionaldeGuadalajara,95,45,4.5
+MUSAMuseodelasArtesUniversidaddeGuadalajara,0,65,4.8
+MuseodelaCiudaddeGuadalajara,0,85,4.6
+MuseoPalacioOcampo,100,50,4.5
+MuseodePaleontologiadeGuadalajara,20,110,4.6
+MuseodeArtedeZapopan,0,120,4.5
+CasaMuseoLopezPortillo,0,45,4.6
+MuseodelasArtesPopularesdeJalisco,0,75,4.4
+MuseodelEjercitoyFuerzaAerea,0,55,4.8
+MuseoDeSitioDelPalacioDeGobierno,40,35,4.7
+ZoologicoGuadalajara,335,300,4.7
+ElTejaban,20,30,4.3
+AcuariodelZoologicoGuadalajara,100,90,4.8
+Antartidaelreinodelospinguinos,70,15,4.7
+Zoologico,125,245,4.4
+ParqueVillaFantasia,10,30,3.9
+VillaAustraliana,0,12,4.3
+Herpetariolatierradelosreptilesyanfibios,0,30,4.6
+NaturaPet,0,35,4.7
+ZoologicodeEsculturasJuegos,0,35,4.3
+ParqueRevolucion,0,48,4.1
+ParqueMorelos,0,95,4.5
+ParqueAlcalde,0,15,4.4
+ParqueAguaAzul,0,30,4.7
+ParqueExpiatorio,0,60,4.4
+ParquedeLaLiberacion,0,10,4.4
+ParqueSanJacinto,0,20,4.5
+ParqueJardinesdelNilo,0,120,4.6
+ParquelaCalma,0,100,4.5
+ParqueGonzalezGallo,0,180,4.7
+AndaresCentroComercial,0,160,4.6
+ForumTlaquepaque,0,150,4.5
+CentroComercialPlazaPatria,0,60,4.5
+PlazaRealCenter,0,200,4.6
+LaGranPlazaFashionMall,0,130,4.7
+PuntoSur,0,190,4.3
+CentroMagno,0,50,4.2
+CentroSur,0,40,4.4
+CentroComercialPlazaLomas,0,230,4.5
+PlazaGaleriasGuadalajara,4575,0,4.7
+HotelRiuPlazaGuadalajara,5171,0,4.8
+HyattRegencyAndaresGuadalajara,3461,0,4.6
+FiestaAmericanaGuadalajara,,,
