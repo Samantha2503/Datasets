@@ -1,0 +1,91 @@
+import cv2
+import numpy as np
+
+# =========================
+# 1. Cargar imagen
+# =========================
+img = cv2.imread("imagen.jpg")  # <-- cambia por tu imagen
+if img is None:
+    print("Error: no se pudo cargar la imagen")
+    exit()
+
+original = img.copy()
+
+# =========================
+# 2. Preprocesamiento
+# =========================
+gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+# Mejorar contraste (muy importante para fondo irregular)
+clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+gray = clahe.apply(gray)
+
+# Suavizado
+blur = cv2.GaussianBlur(gray, (5,5), 0)
+
+# =========================
+# 3. Umbral adaptativo
+# =========================
+th = cv2.adaptiveThreshold(
+    blur,
+    255,
+    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv2.THRESH_BINARY_INV,
+    11,
+    2
+)
+
+# =========================
+# 4. Operaciones morfológicas
+# =========================
+kernel = np.ones((3,3), np.uint8)
+
+# Eliminar ruido pequeño
+opening = cv2.morphologyEx(th, cv2.MORPH_OPEN, kernel, iterations=2)
+
+# Cerrar huecos (unir partes del tornillo)
+closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+# =========================
+# 5. Encontrar contornos
+# =========================
+contours, _ = cv2.findContours(
+    closing,
+    cv2.RETR_EXTERNAL,
+    cv2.CHAIN_APPROX_SIMPLE
+)
+
+# =========================
+# 6. Filtrar y dibujar
+# =========================
+min_area = 500  # ajusta según tamaño del tornillo
+
+for cnt in contours:
+    area = cv2.contourArea(cnt)
+
+    if area > min_area:
+        # Dibujar contorno
+        cv2.drawContours(original, [cnt], -1, (0,255,0), 2)
+
+        # Bounding box
+        x, y, w, h = cv2.boundingRect(cnt)
+        cv2.rectangle(original, (x,y), (x+w, y+h), (255,0,0), 2)
+
+        # Relación de aspecto (opcional)
+        aspect_ratio = w / float(h)
+        cv2.putText(original, f"AR:{aspect_ratio:.2f}",
+                    (x, y-10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (0,255,255), 1)
+
+# =========================
+# 7. Mostrar resultados
+# =========================
+cv2.imshow("Original", img)
+cv2.imshow("Gray + CLAHE", gray)
+cv2.imshow("Threshold", th)
+cv2.imshow("Mask limpia", closing)
+cv2.imshow("Resultado final", original)
+
+cv2.waitKey(0)
+cv2.destroyAllWindows()
