@@ -1,0 +1,99 @@
+import cv2
+import numpy as np
+
+def clasificar_imagen(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # Rango de rojo en HSV
+    lower_red1 = np.array([0, 70, 50])
+    upper_red1 = np.array([10, 255, 255])
+    
+    lower_red2 = np.array([170,70,50])
+    upper_red2 = np.array([180,255,255])
+
+    mask_red = cv2.inRange(hsv, lower_red1, upper_red1) + \
+               cv2.inRange(hsv, lower_red2, upper_red2)
+
+    porcentaje_rojo = np.sum(mask_red > 0) / mask_red.size
+
+    if porcentaje_rojo > 0.4:
+        return "fondo_rojo"
+    elif porcentaje_rojo > 0.05:
+        return "anotaciones"
+    else:
+        return "fondo_gris"
+
+
+
+def procesar_fondo_rojo(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    lower_red1 = np.array([0, 70, 50])
+    upper_red1 = np.array([10, 255, 255])
+
+    mask = cv2.inRange(hsv, lower_red1, upper_red1)
+
+    # Invertir → quedarte con piezas
+    mask_inv = cv2.bitwise_not(mask)
+
+    result = cv2.bitwise_and(img, img, mask=mask_inv)
+    return result
+
+
+def procesar_fondo_gris(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Mejorar contraste
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    gray = clahe.apply(gray)
+
+    # Suavizar
+    blur = cv2.GaussianBlur(gray, (5,5), 0)
+
+    return blur
+
+
+
+def eliminar_anotaciones(img):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    lower_red1 = np.array([0, 70, 50])
+    upper_red1 = np.array([10, 255, 255])
+
+    mask = cv2.inRange(hsv, lower_red1, upper_red1)
+
+    # Inpainting (rellena donde había rojo)
+    result = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+
+    return result
+
+
+def pipeline(img):
+    tipo = clasificar_imagen(img)
+
+    if tipo == "fondo_rojo":
+        img = procesar_fondo_rojo(img)
+    elif tipo == "anotaciones":
+        img = eliminar_anotaciones(img)
+    else:
+        img = procesar_fondo_gris(img)
+
+    return img
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
