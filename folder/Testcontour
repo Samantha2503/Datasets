@@ -1,0 +1,64 @@
+import cv2
+
+img = cv2.imread("ensamble.png")
+
+# Reducir ruido (mejor que Gaussian para bordes)
+blur = cv2.medianBlur(img, 5)
+
+# Alternativa más potente:
+# blur = cv2.bilateralFilter(img, 9, 75, 75)
+gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)
+
+# Ecualizar contraste
+gray = cv2.equalizeHist(gray)
+clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+gray = clahe.apply(gray)
+thresh = cv2.adaptiveThreshold(
+    gray, 255,
+    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv2.THRESH_BINARY_INV,
+    11, 2
+)
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+
+# Quitar ruido pequeño
+opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+
+# Rellenar huecos en piezas
+closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
+import numpy as np
+
+# Distancia
+dist = cv2.distanceTransform(closing, cv2.DIST_L2, 5)
+
+_, sure_fg = cv2.threshold(dist, 0.5*dist.max(), 255, 0)
+sure_fg = np.uint8(sure_fg)
+
+# Fondo
+sure_bg = cv2.dilate(closing, kernel, iterations=3)
+
+unknown = cv2.subtract(sure_bg, sure_fg)
+
+# Marcadores
+_, markers = cv2.connectedComponents(sure_fg)
+markers = markers + 1
+markers[unknown == 255] = 0
+
+markers = cv2.watershed(img, markers)
+
+output = img.copy()
+
+for label in np.unique(markers):
+    if label <= 1:
+        continue
+    
+    mask = np.zeros(gray.shape, dtype="uint8")
+    mask[markers == label] = 255
+    
+    color = np.random.randint(0,255,3).tolist()
+    output[mask == 255] = color
+
+cv2.imshow("Segmentacion final", output)
+cv2.waitKey(0)
+
+
