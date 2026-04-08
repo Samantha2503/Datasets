@@ -1,0 +1,126 @@
+pip install tensorflow opencv-python albumentations
+
+
+import cv2
+import numpy as np
+import os
+from tensorflow.keras.utils import Sequence
+import albumentations as A
+
+transform = A.Compose([
+    A.HorizontalFlip(p=0.5),
+    A.VerticalFlip(p=0.5),
+    A.RandomBrightnessContrast(p=0.3),
+    A.GaussianBlur(p=0.2),
+])
+
+class DataGenerator(Sequence):
+    def __init__(self, img_dir, mask_dir, batch_size=8):
+        self.img_paths = sorted(os.listdir(img_dir))
+        self.img_dir = img_dir
+        self.mask_dir = mask_dir
+        self.batch_size = batch_size
+
+    def __len__(self):
+        return len(self.img_paths) // self.batch_size
+
+    def __getitem__(self, idx):
+        batch_imgs = self.img_paths[idx*self.batch_size:(idx+1)*self.batch_size]
+        
+        X, y = [], []
+
+        for name in batch_imgs:
+            img = cv2.imread(os.path.join(self.img_dir, name))
+            mask = cv2.imread(os.path.join(self.mask_dir, name), 0)
+
+            img = cv2.resize(img, (256, 256))
+            mask = cv2.resize(mask, (256, 256))
+
+            augmented = transform(image=img, mask=mask)
+            img = augmented['image']
+            mask = augmented['mask']
+
+            img = img / 255.0
+            mask = mask / 255.0
+            mask = np.expand_dims(mask, axis=-1)
+
+            X.append(img)
+            y.append(mask)
+
+        return np.array(X), np.array(y)
+
+
+from tensorflow.keras import layers, Model
+
+def unet():
+    inputs = layers.Input((256, 256, 3))
+
+    # Encoder
+    c1 = layers.Conv2D(16, 3, activation='relu', padding='same')(inputs)
+    c1 = layers.Conv2D(16, 3, activation='relu', padding='same')(c1)
+    p1 = layers.MaxPooling2D()(c1)
+
+    c2 = layers.Conv2D(32, 3, activation='relu', padding='same')(p1)
+    c2 = layers.Conv2D(32, 3, activation='relu', padding='same')(c2)
+    p2 = layers.MaxPooling2D()(c2)
+
+    # Bottleneck
+    c3 = layers.Conv2D(64, 3, activation='relu', padding='same')(p2)
+
+    # Decoder
+    u1 = layers.UpSampling2D()(c3)
+    u1 = layers.concatenate([u1, c2])
+    c4 = layers.Conv2D(32, 3, activation='relu', padding='same')(u1)
+
+    u2 = layers.UpSampling2D()(c4)
+    u2 = layers.concatenate([u2, c1])
+    c5 = layers.Conv2D(16, 3, activation='relu', padding='same')(u2)
+
+    outputs = layers.Conv2D(1, 1, activation='sigmoid')(c5)
+
+    return Model(inputs, outputs)
+
+model = unet()
+
+model.compile(
+    optimizer='adam',
+    loss='binary_crossentropy',
+    metrics=['accuracy']
+)
+
+train_gen = DataGenerator("dataset/images", "dataset/masks")
+
+model.fit(train_gen, epochs=30)
+
+
+
+
+
+
+
+img = cv2.imread("test.png")
+img = cv2.resize(img, (256,256)) / 255.0
+img = np.expand_dims(img, axis=0)
+
+pred = model.predict(img)[0]
+mask = (pred > 0.5).astype(np.uint8)
+
+
+
+
+import cv2
+
+mask = mask.squeeze()
+
+num_labels, labels = cv2.connectedComponents(mask)
+
+print("Piezas detectadas:", num_labels - 1)
+
+
+
+
+
+
+
+
+
