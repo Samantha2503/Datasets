@@ -1,0 +1,144 @@
+import cv2
+import numpy as np
+import torch
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+
+# ============================
+# CONFIGURACIÓN
+# ============================
+MIN_AREA = 2000
+MAX_AREA = 1000000
+MIN_SOLIDITY = 0.6   # qué tan "rellena" está la pieza
+MODEL_PATH = "sam_vit_b.pth"
+
+# ============================
+# FUNCIONES
+# ============================
+
+def eje_simetria(mask):
+    ys, xs = np.where(mask > 0)
+    pts = np.column_stack((xs, ys)).astype(np.float32)
+
+    mean, eigenvectors = cv2.PCACompute(pts, mean=None)
+    center = mean[0]
+    direction = eigenvectors[0]
+
+    return center, direction
+
+
+def cortar_mitad(mask, center, direction):
+    h, w = mask.shape
+    mitad = np.zeros_like(mask)
+
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                v = np.array([x, y]) - center
+                lado = np.dot(v, direction)
+
+                if lado > 0:
+                    mitad[y, x] = 255
+
+    return mitad
+
+
+def calcular_solidez(mask):
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(cnts) == 0:
+        return 0
+
+    cnt = max(cnts, key=cv2.contourArea)
+    area = cv2.contourArea(cnt)
+    hull = cv2.convexHull(cnt)
+    hull_area = cv2.contourArea(hull)
+
+    if hull_area == 0:
+        return 0
+
+    return area / hull_area
+
+
+def limpiar_mask(mask):
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    return mask
+
+
+# ============================
+# 1. CARGAR MODELO SAM
+# ============================
+sam = sam_model_registry["vit_b"](checkpoint=MODEL_PATH)
+mask_generator = SamAutomaticMaskGenerator(
+    sam,
+    pred_iou_thresh=0.8,
+    stability_score_thresh=0.85,
+    min_mask_region_area=1000
+)
+
+# ============================
+# 2. LEER IMAGEN
+# ============================
+img = cv2.imread("pieza.jpg")
+img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+# ============================
+# 3. GENERAR MÁSCARAS
+# ============================
+masks = mask_generator.generate(img_rgb)
+
+print("Máscaras detectadas:", len(masks))
+
+# ============================
+# 4. FILTRAR MÁSCARAS
+# ============================
+componentes = []
+
+print("\n--- FILTRADO ---")
+
+for i, m in enumerate(masks):
+    mask = m['segmentation'].astype(np.uint8)
+
+    area = np.sum(mask)
+
+    if area < MIN_AREA or area > MAX_AREA:
+        continue
+
+    mask = limpiar_mask(mask)
+
+    # bounding box
+    x, y, w, h = cv2.boundingRect(mask)
+    ratio = w / h if h != 0 else 0
+
+    # solidez (importante para metal)
+    solidity = calcular_solidez(mask)
+
+    print(f"Mask {i}: Área={area}, Ratio={ratio:.2f}, Solidity={solidity:.2f}")
+
+    # FILTRO INTELIGENTE
+    if solidity < MIN_SOLIDITY:
+        continue
+
+    componentes.append(mask)
+
+# ============================
+# 5. PROCESAR PIEZAS
+# ============================
+output = np.zeros_like(img)
+
+for comp in componentes:
+
+    center, direction = eje_simetria(comp)
+
+    mitad = cortar_mitad(comp, center, direction)
+
+    color = np.random.randint(0,255,3)
+    output[mitad > 0] = color
+
+# ============================
+# 6. RESULTADO
+# ============================
+cv2.imwrite("resultado_sam.png", output)
+
+cv2.imshow("Resultado SAM", output)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
