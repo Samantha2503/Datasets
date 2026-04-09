@@ -1,0 +1,314 @@
+import cv2
+import numpy as np
+
+# ============================
+# CONFIG
+# ============================
+MIN_AREA = 1500
+THRESH_S = 35
+KERNEL_SIZE = 7
+DIST_THRESH = 0.35
+
+# ============================
+# FUNCIONES
+# ============================
+
+def eje_y_elongacion(mask):
+    ys, xs = np.where(mask > 0)
+    pts = np.column_stack((xs, ys)).astype(np.float32)
+
+    mean, eigenvectors, eigenvalues = cv2.PCACompute2(pts, mean=None)
+
+    center = mean[0]
+    direction = eigenvectors[0]
+
+    # elongación = relación entre eigenvalues
+    elongacion = eigenvalues[0][0] / (eigenvalues[1][0] + 1e-5)
+
+    return center, direction, elongacion
+
+
+def convexificar(mask):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    hull_mask = np.zeros_like(mask)
+
+    for cnt in contours:
+        hull = cv2.convexHull(cnt)
+        cv2.drawContours(hull_mask, [hull], -1, 255, -1)
+
+    return hull_mask
+
+
+def cortar_mitad(mask, center, direction):
+    h, w = mask.shape
+    mitad = np.zeros_like(mask)
+
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                v = np.array([x, y]) - center
+                lado = np.dot(v, direction)
+
+                if lado > 0:
+                    mitad[y, x] = 255
+
+    return mitad
+
+
+# ============================
+# 1. CARGAR
+# ============================
+img = cv2.imread("pieza.jpg")
+
+# ============================
+# 2. FILTRO BILATERAL (mejor para metal)
+# ============================
+smooth = cv2.bilateralFilter(img, 9, 75, 75)
+
+# ============================
+# 3. HSV SEGMENTACIÓN
+# ============================
+hsv = cv2.cvtColor(smooth, cv2.COLOR_BGR2HSV)
+s = hsv[:, :, 1]
+
+_, mask = cv2.threshold(s, THRESH_S, 255, cv2.THRESH_BINARY)
+
+# ============================
+# 4. MORFOLOGÍA
+# ============================
+kernel = np.ones((KERNEL_SIZE, KERNEL_SIZE), np.uint8)
+mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+# ============================
+# 5. WATERSHED
+# ============================
+dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+dist_norm = cv2.normalize(dist, None, 0, 1.0, cv2.NORM_MINMAX)
+
+_, sure_fg = cv2.threshold(dist_norm, DIST_THRESH, 1.0, cv2.THRESH_BINARY)
+sure_fg = (sure_fg * 255).astype(np.uint8)
+
+unknown = cv2.subtract(mask, sure_fg)
+
+_, markers = cv2.connectedComponents(sure_fg)
+markers = markers + 1
+markers[unknown == 255] = 0
+
+markers = cv2.watershed(img, markers)
+
+# ============================
+# 6. PROCESAR COMPONENTES
+# ============================
+output = np.zeros_like(img)
+
+print("\n--- ANÁLISIS DE PIEZAS ---")
+
+for label in np.unique(markers):
+    if label <= 1:
+        continue
+
+    comp = (markers == label).astype(np.uint8)
+    area = np.sum(comp)
+
+    if area < MIN_AREA:
+        continue
+
+    # suavizar forma
+    comp = convexificar(comp)
+
+    # PCA + elongación
+    center, direction, elong = eje_y_elongacion(comp)
+
+    # bounding box
+    x, y, w, h = cv2.boundingRect(comp)
+    ratio = w / h if h != 0 else 0
+
+    print(f"Área={area}, Ratio={ratio:.2f}, Elongación={elong:.2f}")
+
+    # =====================
+    # CLASIFICACIÓN
+    # =====================
+    if elong > 4:
+        tipo = "TORNILLO"
+        color = (0, 0, 255)
+    else:
+        tipo = "PLACA"
+        color = (0, 255, 0)
+
+    print("→", tipo)
+
+    # =====================
+    # CORTAR MITAD
+    # =====================
+    mitad = cortar_mitad(comp, center, direction)
+
+    output[mitad > 0] = color
+
+# ============================
+# 7. GUARDAR
+# ============================
+cv2.imwrite("resultado_pro.png", output)
+
+cv2.imshow("Resultado PRO", output)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
+
+#== ==v==
+
+import cv2
+import numpy as np
+
+# ============================
+# CONFIGURACIÓN
+# ============================
+MIN_AREA = 1500
+KERNEL_SIZE = 7
+
+# ============================
+# FUNCIONES
+# ============================
+
+def eje_simetria(mask):
+    ys, xs = np.where(mask > 0)
+    pts = np.column_stack((xs, ys)).astype(np.float32)
+
+    mean, eigenvectors = cv2.PCACompute(pts, mean=None)
+    center = mean[0]
+    direction = eigenvectors[0]
+
+    return center, direction
+
+
+def cortar_mitad(mask, center, direction):
+    h, w = mask.shape
+    mitad = np.zeros_like(mask)
+
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                v = np.array([x, y]) - center
+                lado = np.dot(v, direction)
+
+                if lado > 0:
+                    mitad[y, x] = 255
+
+    return mitad
+
+
+def limpiar_componente(comp):
+    """Quita ruido interno antes de PCA"""
+    kernel = np.ones((5,5), np.uint8)
+    comp = cv2.morphologyEx(comp, cv2.MORPH_CLOSE, kernel)
+    return comp
+
+
+# ============================
+# 1. CARGAR
+# ============================
+img = cv2.imread("pieza.jpg")
+
+# ============================
+# 2. PREPROCESAMIENTO PRO
+# ============================
+
+# Suavizado fuerte (quita textura de tornillo)
+blur = cv2.bilateralFilter(img, 9, 75, 75)
+
+# HSV
+hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+s = hsv[:, :, 1]
+
+# Gradiente (detecta bordes reales)
+gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)
+grad = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, np.ones((3,3),np.uint8))
+
+# Combinar info
+combined = cv2.addWeighted(s, 0.7, grad, 0.3, 0)
+
+# Threshold
+_, mask = cv2.threshold(combined, 40, 255, cv2.THRESH_BINARY)
+
+# ============================
+# 3. LIMPIEZA
+# ============================
+kernel = np.ones((KERNEL_SIZE, KERNEL_SIZE), np.uint8)
+mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+# ============================
+# 4. DISTANCE + PICOS (MEJOR QUE WATERSHED SIMPLE)
+# ============================
+dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
+
+# Normalizar
+dist_norm = cv2.normalize(dist, None, 0, 1.0, cv2.NORM_MINMAX)
+
+# Detectar picos (centros reales)
+_, peaks = cv2.threshold(dist_norm, 0.5, 1.0, cv2.THRESH_BINARY)
+peaks = (peaks * 255).astype(np.uint8)
+
+# Expandir picos (mejora separación)
+kernel = np.ones((3,3), np.uint8)
+peaks = cv2.dilate(peaks, kernel)
+
+# Marcadores
+_, markers = cv2.connectedComponents(peaks)
+markers = markers + 1
+markers[mask == 0] = 0
+
+markers = cv2.watershed(img, markers)
+
+# ============================
+# 5. FILTRAR COMPONENTES
+# ============================
+componentes = []
+
+print("\n--- COMPONENTES ---")
+
+for label in np.unique(markers):
+    if label <= 1:
+        continue
+
+    comp = (markers == label).astype(np.uint8)
+    area = np.sum(comp)
+
+    if area < MIN_AREA:
+        continue
+
+    x, y, w, h = cv2.boundingRect(comp)
+    ratio = w / h if h != 0 else 0
+
+    print(f"Label {label}: Área={area}, Ratio={ratio:.2f}")
+
+    componentes.append(comp)
+
+# ============================
+# 6. PROCESAR PIEZAS
+# ============================
+output = np.zeros_like(img)
+
+for comp in componentes:
+
+    comp = limpiar_componente(comp)
+
+    center, direction = eje_simetria(comp)
+
+    mitad = cortar_mitad(comp, center, direction)
+
+    color = np.random.randint(0,255,3)
+    output[mitad > 0] = color
+
+# ============================
+# 7. RESULTADOS
+# ============================
+cv2.imwrite("mask_pro.png", mask)
+cv2.imwrite("resultado_pro.png", output)
+
+cv2.imshow("Mask PRO", mask)
+cv2.imshow("Resultado PRO", output)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
