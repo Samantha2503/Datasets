@@ -1,0 +1,54 @@
+import torch
+import torchvision
+from pycocotools.coco import COCO
+import cv2
+import numpy as np
+import os
+
+class COCODataset(torch.utils.data.Dataset):
+
+    def __init__(self, img_dir, ann_file):
+        self.img_dir = img_dir
+        self.coco = COCO(ann_file)
+        self.ids = list(self.coco.imgs.keys())
+
+    def __getitem__(self, idx):
+
+        img_id = self.ids[idx]
+        ann_ids = self.coco.getAnnIds(imgIds=img_id)
+        anns = self.coco.loadAnns(ann_ids)
+
+        img_info = self.coco.loadImgs(img_id)[0]
+        path = os.path.join(self.img_dir, img_info['file_name'])
+
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        masks = []
+        boxes = []
+        labels = []
+
+        for ann in anns:
+            mask = self.coco.annToMask(ann)
+
+            y, x = np.where(mask)
+            if len(x) == 0:
+                continue
+
+            x1, x2 = x.min(), x.max()
+            y1, y2 = y.min(), y.max()
+
+            masks.append(mask)
+            boxes.append([x1, y1, x2, y2])
+            labels.append(ann['category_id'])
+
+        masks = torch.as_tensor(np.array(masks), dtype=torch.uint8)
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+
+        img = torch.as_tensor(img/255., dtype=torch.float32).permute(2,0,1)
+
+        return img, {"boxes": boxes, "labels": labels, "masks": masks}
+
+    def __len__(self):
+        return len(self.ids)
