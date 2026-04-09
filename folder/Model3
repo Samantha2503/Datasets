@@ -1,0 +1,83 @@
+import torchvision
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
+def get_model(num_classes):
+
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights="DEFAULT")
+
+    # BOX HEAD
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    # MASK HEAD
+    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(
+        in_features_mask,
+        256,
+        num_classes
+    )
+
+    return model
+
+
+
+import torch
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+dataset = COCODataset("dataset/images", "dataset/annotations.json")
+
+loader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=2,
+    shuffle=True,
+    collate_fn=lambda x: tuple(zip(*x))
+)
+
+num_classes = 3  # fondo + tornillo + placa
+model = get_model(num_classes)
+model.to(device)
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+EPOCHS = 10
+
+for epoch in range(EPOCHS):
+    model.train()
+
+    total_loss = 0
+
+    for imgs, targets in loader:
+
+        imgs = [img.to(device) for img in imgs]
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        loss_dict = model(imgs, targets)
+        loss = sum(loss for loss in loss_dict.values())
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch+1} | Loss: {total_loss:.4f}")
+
+
+model.eval()
+
+with torch.no_grad():
+
+    img = cv2.imread("test.jpg")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    tensor = torch.tensor(img/255., dtype=torch.float32).permute(2,0,1).to(device)
+
+    output = model([tensor])[0]
+
+    masks = output["masks"]
+    labels = output["labels"]
+    scores = output["scores"]
+
+    print("Objetos detectados:", len(masks))
