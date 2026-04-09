@@ -1,0 +1,176 @@
+import os
+import json
+import cv2
+import numpy as np
+import torch
+import torchvision
+from torch.utils.data import Dataset, DataLoader
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+
+# ============================
+# 1️⃣ CONFIGURACIÓN DE RUTAS
+# ============================
+RAW_IMAGES = "dataset_raw/images"           # imágenes originales
+ANNOTATIONS = "dataset_raw/annotations"     # JSON de SAM corregido
+TRAIN_RATIO = 0.7
+OUTPUT_FOLDER = "output/resultados"
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# ============================
+# 2️⃣ Dataset personalizado
+# ============================
+class PiezasDataset(Dataset):
+    def __init__(self, images_dir, annotations_dir):
+        self.images_dir = images_dir
+        self.annotations_dir = annotations_dir
+        self.images = [f for f in os.listdir(images_dir) if f.endswith(".jpg")]
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img_name = self.images[idx]
+        img_path = os.path.join(self.images_dir, img_name)
+        ann_path = os.path.join(self.annotations_dir, img_name.replace(".jpg",".json"))
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        with open(ann_path) as f:
+            data = json.load(f)
+
+        masks = []
+        labels = []
+        h, w, _ = img.shape
+
+        for shape in data['shapes']:
+            mask = np.zeros((h,w), dtype=np.uint8)
+            points = np.array(shape['points'], dtype=np.int32)
+            cv2.fillPoly(mask, [points], 1)
+            masks.append(mask)
+
+            label_name = shape['label']
+            if label_name == 'tornillo':
+                labels.append(1)
+            elif label_name == 'placa':
+                labels.append(2)
+
+        masks = torch.as_tensor(np.stack(masks), dtype=torch.uint8)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        boxes = []
+        for mask in masks:
+            x,y,w_,h_ = cv2.boundingRect(mask.numpy())
+            boxes.append([x,y,x+w_,y+h_])
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+
+        target = {'boxes': boxes, 'labels': labels, 'masks': masks}
+        img = torch.as_tensor(img/255., dtype=torch.float32).permute(2,0,1)
+        return img, target
+
+# ============================
+# 3️⃣ División train/val
+# ============================
+all_imgs = [f for f in os.listdir(RAW_IMAGES) if f.endswith(".jpg")]
+split = int(len(all_imgs) * TRAIN_RATIO)
+train_imgs = all_imgs[:split]
+val_imgs = all_imgs[split:]
+
+# Crear carpetas temporales train/val
+for folder in ["dataset/train/images","dataset/train/annotations","dataset/val/images","dataset/val/annotations"]:
+    os.makedirs(folder, exist_ok=True)
+
+for img in train_imgs:
+    os.rename(os.path.join(RAW_IMAGES,img), os.path.join("dataset/train/images",img))
+    os.rename(os.path.join(ANNOTATIONS,img.replace(".jpg",".json")), os.path.join("dataset/train/annotations",img.replace(".jpg",".json")))
+
+for img in val_imgs:
+    os.rename(os.path.join(RAW_IMAGES,img), os.path.join("dataset/val/images",img))
+    os.rename(os.path.join(ANNOTATIONS,img.replace(".jpg",".json")), os.path.join("dataset/val/annotations",img.replace(".jpg",".json")))
+
+# ============================
+# 4️⃣ Modelo Mask R-CNN
+# ============================
+num_classes = 3
+model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, 256, num_classes)
+model.to(DEVICE)
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+train_dataset = PiezasDataset("dataset/train/images","dataset/train/annotations")
+val_dataset = PiezasDataset("dataset/val/images","dataset/val/annotations")
+train_loader = DataLoader(train_dataset,batch_size=2,shuffle=True,collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_dataset,batch_size=2,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
+
+# ============================
+# 5️⃣ Funciones de corte y eje
+# ============================
+def eje_simetria(mask):
+    ys, xs = np.where(mask>0)
+    pts = np.column_stack((xs,ys)).astype(np.float32)
+    mean, eigenvectors = cv2.PCACompute(pts, mean=None)
+    center = mean[0]
+    direction = eigenvectors[0]
+    return center, direction
+
+def cortar_mitad(mask, center, direction):
+    h,w = mask.shape
+    mitad = np.zeros_like(mask)
+    for y in range(h):
+        for x in range(w):
+            if mask[y,x]:
+                v = np.array([x,y])-center
+                if np.dot(v,direction) > 0:
+                    mitad[y,x] = 1
+    return mitad
+
+# ============================
+# 6️⃣ Entrenamiento simplificado
+# ============================
+num_epochs = 10
+for epoch in range(num_epochs):
+    model.train()
+    for imgs, targets in train_loader:
+        imgs = [img.to(DEVICE) for img in imgs]
+        targets = [{k:v.to(DEVICE) for k,v in t.items()} for t in targets]
+        loss_dict = model(imgs, targets)
+        loss = sum(loss for loss in loss_dict.values())
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print(f"Epoch {epoch+1}/{num_epochs} completado, loss={loss.item():.4f}")
+
+# ============================
+# 7️⃣ Inferencia + mitad + coloreado
+# ============================
+model.eval()
+for i,(imgs, _) in enumerate(val_loader):
+    img = imgs[0].to(DEVICE)
+    with torch.no_grad():
+        output = model([img])[0]
+
+    masks = output['masks']
+    scores = output['scores']
+    h,w = img.shape[1], img.shape[2]
+    final_img = np.zeros((h,w,3), dtype=np.uint8)
+
+    for j in range(len(masks)):
+        if scores[j]<0.7:
+            continue
+        mask = (masks[j,0].cpu().numpy()>0.5).astype(np.uint8)
+        center,direction = eje_simetria(mask)
+        mitad = cortar_mitad(mask, center, direction)
+        color = np.random.randint(0,255,3)
+        final_img[mitad==1] = color
+
+    output_path = os.path.join(OUTPUT_FOLDER,f"result_{i}.png")
+    cv2.imwrite(output_path,cv2.cvtColor(final_img,cv2.COLOR_RGB2BGR))
+    print(f"Imagen procesada y guardada en {output_path}")
+
+
+                   
