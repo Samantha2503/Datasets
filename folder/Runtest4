@@ -1,0 +1,100 @@
+import torch
+import torchvision
+import cv2
+import numpy as np
+
+# ============================
+# 1. CARGAR MODELO ENTRENADO
+# ============================
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+model = torchvision.models.detection.maskrcnn_resnet50_fpn(weights=None)
+num_classes = 3  # fondo + tornillo + placa
+
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, 256, num_classes)
+
+model.load_state_dict(torch.load("model.pth", map_location=device))
+model.to(device)
+model.eval()
+
+# ============================
+# 2. EJE DE SIMETRÍA (PCA)
+# ============================
+def eje_simetria(mask):
+    ys, xs = np.where(mask > 0)
+    pts = np.column_stack((xs, ys)).astype(np.float32)
+    mean, eig = cv2.PCACompute(pts, mean=None)
+    center = mean[0]
+    direction = eig[0]
+    return center, direction
+
+# ============================
+# 3. CORTAR MITAD
+# ============================
+def cortar_mitad(mask, center, direction):
+    h, w = mask.shape
+    out = np.zeros_like(mask)
+
+    for y in range(h):
+        for x in range(w):
+            if mask[y, x]:
+                v = np.array([x, y]) - center
+                if np.dot(v, direction) > 0:
+                    out[y, x] = 1
+
+    return out
+
+# ============================
+# 4. INFERENCIA + OUTPUT PNG TRANSPARENTE
+# ============================
+def process_image(path, output_name="output.png"):
+
+    img = cv2.imread(path)
+    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    tensor = torch.tensor(rgb / 255., dtype=torch.float32).permute(2, 0, 1).to(device)
+
+    with torch.no_grad():
+        output = model([tensor])[0]
+
+    masks = output["masks"]
+    scores = output["scores"]
+    labels = output["labels"]
+
+    h, w = img.shape[:2]
+
+    # RGBA (con transparencia)
+    final = np.zeros((h, w, 4), dtype=np.uint8)
+
+    for i in range(len(masks)):
+
+        if scores[i] < 0.7:
+            continue
+
+        mask = (masks[i, 0].cpu().numpy() > 0.5).astype(np.uint8)
+
+        center, direction = eje_simetria(mask)
+        half = cortar_mitad(mask, center, direction)
+
+        # color aleatorio sólido
+        color = np.random.randint(0, 255, 3)
+
+        for c in range(3):
+            final[:, :, c][half == 1] = color[c]
+
+        final[:, :, 3][half == 1] = 255  # alpha
+
+    cv2.imwrite(output_name, final)
+    print("Guardado:", output_name)
+
+# ============================
+# 5. USO
+# ============================
+process_image("test.jpg", "resultado.png")
