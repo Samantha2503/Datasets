@@ -1,0 +1,144 @@
+import numpy as np
+import torch
+import cv2
+from segment_anything import sam_model_registry, SamPredictor
+
+# =========================
+# 🔧 CONFIGURACIÓN
+# =========================
+
+SAM_CHECKPOINT = "sam_vit_h.pth"   # <-- CAMBIA ESTO
+MODEL_TYPE = "vit_h"               # vit_b / vit_l / vit_h
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# =========================
+# 🚀 CARGAR SAM
+# =========================
+
+sam = sam_model_registry[MODEL_TYPE](checkpoint=SAM_CHECKPOINT)
+sam.to(device=DEVICE)
+predictor = SamPredictor(sam)
+
+# =========================
+# 🧠 TU MODELO (mock)
+# =========================
+# ⚠️ AQUÍ conectas tu modelo real
+
+def tu_modelo(img):
+    """
+    Debes reemplazar esto con tu modelo real.
+    Debe devolver:
+    - label: "tornillo" o "placa"
+    - bbox: [x1, y1, x2, y2]
+    """
+    h, w, _ = img.shape
+    return {
+        "label": "tornillo",
+        "bbox": [int(w*0.3), int(h*0.3), int(w*0.7), int(h*0.7)]
+    }
+
+# =========================
+# 📍 GENERADOR DE PROMPTS
+# =========================
+
+def generar_prompts(label, bbox):
+    """
+    Genera puntos para SAM dependiendo del objeto.
+    👉 AQUÍ es donde puedes experimentar
+    """
+    x1, y1, x2, y2 = bbox
+    
+    cx = (x1 + x2) // 2
+    cy = (y1 + y2) // 2
+
+    if label == "tornillo":
+        # 🔥 MÁS INFORMACIÓN para objetos complejos
+        puntos = np.array([
+            [cx, cy],       # centro
+            [x1, cy],       # extremo izquierdo
+            [x2, cy],       # extremo derecho
+        ])
+        labels = np.array([1, 1, 1])  # positivos
+
+    else:
+        # 🟢 simple para placas
+        puntos = np.array([[cx, cy]])
+        labels = np.array([1])
+
+    return puntos, labels
+
+# =========================
+# 🧪 FUNCIÓN DE SCORE
+# =========================
+
+def evaluar_mascara(mask):
+    """
+    Evalúa qué tan buena es una máscara.
+    👉 PUEDES mejorar esto con tu red actual
+    """
+    area = np.sum(mask)
+
+    # ejemplo simple
+    if area < 100:
+        return 0
+    
+    return area  # más grande = mejor (simplificado)
+
+# =========================
+# 🎯 SEGMENTACIÓN COMPLETA
+# =========================
+
+def segmentar_imagen(img):
+    """
+    Pipeline completo:
+    """
+    # 1. Tu modelo detecta objeto
+    salida = tu_modelo(img)
+    label = salida["label"]
+    bbox = salida["bbox"]
+
+    # 2. Generar prompts dinámicos
+    puntos, labels = generar_prompts(label, bbox)
+
+    # 3. Preparar imagen para SAM
+    predictor.set_image(img)
+
+    # 4. OPCIONAL: probar múltiples variantes
+    mejores_masks = []
+    mejores_scores = []
+
+    for variante in range(3):  # 🔥 puedes subir/bajar esto
+        masks, scores, logits = predictor.predict(
+            point_coords=puntos,
+            point_labels=labels,
+            multimask_output=True
+        )
+
+        # 5. Elegir mejor máscara
+        for m in masks:
+            s = evaluar_mascara(m)
+            mejores_masks.append(m)
+            mejores_scores.append(s)
+
+    # 6. Seleccionar la mejor
+    idx = np.argmax(mejores_scores)
+    mejor_mask = mejores_masks[idx]
+
+    return mejor_mask, label, bbox
+
+# =========================
+# 🖼️ EJECUCIÓN
+# =========================
+
+if __name__ == "__main__":
+    img = cv2.imread("imagen.jpg")
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    mask, label, bbox = segmentar_imagen(img)
+
+    print("Objeto detectado:", label)
+
+    # visualizar
+    mask_vis = (mask * 255).astype(np.uint8)
+    cv2.imwrite("mask.png", mask_vis)
